@@ -1,0 +1,224 @@
+name: ai-collab
+
+# Multi-AI collaboration pipeline for uibc-core.
+#   divide  ->  review A + review B (parallel)  ->  rebut (mutual adversarial arbitration)
+#           ->  fix (proposal only)  ->  test (pytest)  ->  aggregate  ->  human acceptance
+#
+# SAFETY BY DESIGN
+#   * trigger: collab-branch pushes (ai-collab*), self-trigger loop blocked via paths-ignore
+#     + [skip ci] on the bot report commit. Never on main. Manual dispatch also allowed.
+#   * hard guard: refuses to run on `main`; writes only to the collab branch.
+#   * no auto-merge, no release, no publish, no PR to main.
+#   * free tier only: GitHub Models via the built-in GITHUB_TOKEN (permissions: models: read).
+#     No personal token, no paid API key, no secret stored in the repo.
+
+on:
+  push:
+    branches:
+      - ai-collab
+      - "ai-collab-*"
+    paths-ignore:
+      - ".github/ai-collab/runs/**"
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Base ref to diff against"
+        required: false
+        default: main
+      ref:
+        description: "Collab ref to review"
+        required: false
+        default: ai-collab
+
+permissions:
+  contents: write
+  models: read
+  actions: read
+
+concurrency:
+  group: ai-collab-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  COLLAB_BASE: ${{ inputs.base || 'main' }}
+  COLLAB_REF: ${{ inputs.ref || github.ref_name }}
+
+jobs:
+  guard:
+    name: "0. guard (never run on main)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse to operate on main
+        run: |
+          echo "ref_name=${{ github.ref_name }}  ref=${{ github.ref }}"
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "::error::ai-collab must never run on main (branch-isolated pipeline)"
+            exit 1
+          fi
+          echo "guard OK: running on ${{ github.ref_name }}"
+
+  divide:
+    name: "1. auto task division"
+    needs: guard
+    runs-on: ubuntu-latest
+    outputs:
+      files: ${{ steps.run.outputs.files }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - id: run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python .github/ai-collab/collab.py divide --base "$COLLAB_BASE" --ref "$COLLAB_REF" --out out/tasks.json
+          echo "files=$(python -c "import json;print(json.load(open('out/tasks.json'))['file_count'])")" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: s1-tasks
+          path: out/tasks.json
+
+  review:
+    name: "2. parallel review (${{ matrix.seat }})"
+    needs: divide
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        seat: [a, b]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: s1-tasks
+          path: out
+      - name: Run seat ${{ matrix.seat }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python .github/ai-collab/collab.py review --seat "${{ matrix.seat }}" --tasks out/tasks.json --out "out/review-${{ matrix.seat }}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: s2-review-${{ matrix.seat }}
+          path: out/review-${{ matrix.seat }}.json
+
+  rebut:
+    name: "3. mutual rebuttal + arbitration"
+    needs: review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: s2-review-*
+          merge-multiple: true
+          path: out
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python .github/ai-collab/collab.py rebut --review-a out/review-a.json --review-b out/review-b.json --out out/rebuttal.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: s3-rebuttal
+          path: out/rebuttal.json
+
+  fix:
+    name: "4. fix proposal (never applied)"
+    needs: rebut
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: s3-rebuttal
+          path: out
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python .github/ai-collab/collab.py fix --rebuttal out/rebuttal.json --out out/proposed-fix.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: s4-fix
+          path: |
+            out/proposed-fix.md
+            out/proposed-fix.md.meta.json
+
+  test:
+    name: "5. test collection (pytest)"
+    needs: rebut
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install -q --upgrade pip
+          [ -f requirements.txt ] && pip install -q -r requirements.txt || true
+          pip install -q pytest || true
+      - name: Run pytest (never blocks on failure -- result is collected as evidence)
+        id: pytest
+        run: |
+          set +e
+          python -m pytest tests -q > out_pytest.log 2>&1
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          tail -30 out_pytest.log || true
+          exit 0
+      - name: Collect test evidence
+        run: |
+          mkdir -p out
+          python .github/ai-collab/collab.py collect-tests --log out_pytest.log --out out/tests.json --exit-code "${{ steps.pytest.outputs.exit }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: s5-tests
+          path: |
+            out/tests.json
+            out_pytest.log
+
+  aggregate:
+    name: "6. aggregate + publish report to collab branch only"
+    needs: [fix, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: s*
+          merge-multiple: true
+          path: out
+      - name: Build report (fails loudly if any stage produced nothing)
+        run: |
+          python .github/ai-collab/collab.py aggregate --dir out --out out/COLLAB-REPORT.md
+      - name: Commit report to the collab branch ONLY (main is impossible here)
+        run: |
+          set -e
+          git config user.name "ai-collab-bot"
+          git config user.email "ai-collab-bot@users.noreply.github.com"
+          mkdir -p .github/ai-collab/runs
+          cp out/COLLAB-REPORT.md ".github/ai-collab/runs/COLLAB-REPORT-${{ github.run_id }}.md"
+          git add ".github/ai-collab/runs/COLLAB-REPORT-${{ github.run_id }}.md"
+          git diff --cached --quiet && echo "no report change" && exit 0
+          git commit -m "chore(ai-collab): collaboration report for run ${{ github.run_id }} [skip ci]"
+          git push origin "HEAD:$COLLAB_REF"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: s6-collab-report
+          path: out/COLLAB-REPORT.md
+      - name: Job summary
+        run: cat out/COLLAB-REPORT.md >> "$GITHUB_STEP_SUMMARY"
