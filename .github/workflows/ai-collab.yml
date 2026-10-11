@@ -122,9 +122,9 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $sshDir = 'C:\Users\Administrator\actions-runner\_ssh'
-          $key = Join-Path $sshDir 'id_ed25519'
-          $khFwd = ((Join-Path $sshDir 'known_hosts') -replace '\\','/')
+          $sshDir = 'C:/Users/Administrator/actions-runner/_ssh'
+          $key = "$sshDir/id_ed25519"
+          $khFwd = "$sshDir/known_hosts"
           $env:GIT_SSH_COMMAND = "ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$khFwd"
           $url = 'ssh://git@ssh.github.com:443/zhaoxinghua09-cell/uibc-core.git'
           $ref = "$env:GITHUB_REF_NAME"
