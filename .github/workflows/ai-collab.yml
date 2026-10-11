@@ -119,7 +119,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: "Checkout via SSH (this machine blocks HTTPS 443 to github.com; SSH over 443 works)"
-        shell: pwsh
+        shell: powershell
         run: |
           $ref = "$env:GITHUB_REF_NAME"
           Write-Host "checkout ref: $ref"
