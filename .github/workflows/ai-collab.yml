@@ -77,7 +77,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: s1-tasks
-          path: out/tasks.json
+          path: out
 
   review:
     name: "2. parallel review (${{ matrix.seat }})"
@@ -104,7 +104,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: s2-review-${{ matrix.seat }}
-          path: out/review-${{ matrix.seat }}.json
+          path: out
 
   rebut:
     name: "3. mutual rebuttal + arbitration"
@@ -127,7 +127,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: s3-rebuttal
-          path: out/rebuttal.json
+          path: out
 
   fix:
     name: "4. fix proposal (never applied)"
@@ -149,9 +149,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: s4-fix
-          path: |
-            out/proposed-fix.md
-            out/proposed-fix.md.meta.json
+          path: out
 
   test:
     name: "5. test collection (pytest)"
@@ -171,20 +169,18 @@ jobs:
         id: pytest
         run: |
           set +e
-          python -m pytest tests -q > out_pytest.log 2>&1
+          mkdir -p out
+          python -m pytest tests -q > out/pytest.log 2>&1
           echo "exit=$?" >> "$GITHUB_OUTPUT"
-          tail -30 out_pytest.log || true
+          tail -30 out/pytest.log || true
           exit 0
       - name: Collect test evidence
         run: |
-          mkdir -p out
-          python .github/ai-collab/collab.py collect-tests --log out_pytest.log --out out/tests.json --exit-code "${{ steps.pytest.outputs.exit }}"
+          python .github/ai-collab/collab.py collect-tests --log out/pytest.log --out out/tests.json --exit-code "${{ steps.pytest.outputs.exit }}"
       - uses: actions/upload-artifact@v4
         with:
           name: s5-tests
-          path: |
-            out/tests.json
-            out_pytest.log
+          path: out
 
   aggregate:
     name: "6. aggregate + publish report to collab branch only"
@@ -219,6 +215,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: s6-collab-report
-          path: out/COLLAB-REPORT.md
+          path: out
       - name: Job summary
         run: cat out/COLLAB-REPORT.md >> "$GITHUB_STEP_SUMMARY"

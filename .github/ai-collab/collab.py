@@ -435,9 +435,24 @@ def cmd_collect_tests(args) -> int:
 
 
 def cmd_aggregate(args) -> int:
+    def locate(basename):
+        """Class-level fix: artifact uploads may nest paths (LCA of the uploaded
+        file set decides the internal layout), so never assume a flat dir --
+        search recursively for the basename."""
+        for root, _dirs, files in os.walk(args.dir):
+            for fn in files:
+                if fn == basename:
+                    return os.path.join(root, fn)
+        return None
+
     def load(name):
-        p = os.path.join(args.dir, name)
-        return read_json(p) if os.path.exists(p) else None
+        p = locate(name)
+        if not p:
+            return None
+        try:
+            return read_json(p)
+        except Exception:  # noqa: BLE001
+            return None
 
     tasks = load("tasks.json")
     ra, rb = load("review-a.json"), load("review-b.json")
@@ -445,8 +460,8 @@ def cmd_aggregate(args) -> int:
     fixmeta = load("proposed-fix.md.meta.json")
     tests = load("tests.json")
     fixmd = ""
-    fp = os.path.join(args.dir, "proposed-fix.md")
-    if os.path.exists(fp):
+    fp = locate("proposed-fix.md")
+    if fp:
         with open(fp, encoding="utf-8") as fh:
             fixmd = fh.read()
 
