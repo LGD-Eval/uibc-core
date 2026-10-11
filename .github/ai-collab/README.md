@@ -18,17 +18,26 @@
 | 6 | 汇总 | 聚合器 | `COLLAB-REPORT.md` → 只提交到协作分支 + 上传工件 |
 | 7 | **人工验收** | **Steven** | 报告里勾选清单；合并/不合并由人决定 |
 
-## 模型后端（免费、零密钥）
+## 模型后端（默认零密钥 / 可插拔）
 
-用 **GitHub Models**（`https://models.github.ai`），鉴权用工作流自带的 `GITHUB_TOKEN`
-（`permissions: models: read`）。
+**关键事实（2026-10-11 核实）**：`models.github.ai`（GitHub Models）**已于 2026-07-30 对所有客户全面退役**——
+playground、模型目录、推理 API、BYOK 全部停止（据官方页 `docs.github.com/en/github-models`）。
+实测证据：CI 内 `GET /catalog` 返回 `HTTP 200` + 正文 `OK`、`models=0`（退役网关的健康应答）。
 
-- ❌ 不需要个人 PAT，❌ 不需要付费 key，❌ 仓库里不存任何密钥。
-- 席 A/B/C/D 从实时目录 `GET /catalog` 里各自挑一个模型（偏好列表见 `collab.py`）。
-- **可证伪**：若后端不可达，该席记 `mode="heuristic-fallback"`，改用确定性静态检查
-  （`eval/exec`、`shell=True`、吞异常、硬编码凭据、`assert True`、绑定 `0.0.0.0` 等）
-  仍产出**真实**发现；报告会如实标注每个席实际跑的是 `model` 还是 `heuristic-fallback`。
-  某席什么都没产出 → 报告写 `FAILED`，聚合步骤以非 0 退出。
+因此本流水线的后端是**可插拔**的：
+
+| 配置 | 席位行为 | 报告如何标注 |
+|---|---|---|
+| 默认（什么都不配） | 确定性启发式席位（静态检查：`eval/exec`、`shell=True`、吞异常、硬编码凭据、`assert True`、`0.0.0.0`…） | `mode="heuristic-fallback"` |
+| 配了 `COLLAB_LLM_BASE_URL` + `COLLAB_LLM_MODELS`（OpenAI 兼容） | 真正的多模型席位（A 审查员 / B 红队 / C 仲裁 / D 修复） | `mode="model"` + 模型名 |
+| 另配 `COLLAB_LLM_KEY`（可选） | 同上，带鉴权 | 同上 |
+
+- 前两项用**仓库 Variables**（非机密）；密钥只走**仓库 Secrets**，绝不写进仓库文件、也绝不进对话。
+- **零密钥默认**：不配置也能跑完整七阶段，且报告如实标注席位模式——**不会假装某模型已接入**。
+- 想升级成真·多模型又不花钱，两条现成路线（待 Steven 拍板，见会话汇报）：
+  ①**自托管 runner** 挂在本机 Ollama（qwen3:8b 等，零成本、零外发）；
+  ②填一个免费/自有 OpenAI 兼容端点到仓库 Variables/Secrets。
+- 安全基线对齐：本流水线所有 `actions/*` 均已**固定到 commit SHA**（配合另一窗口的 OpenSSF Scorecard 整改线）。
 
 ## 手动触发
 

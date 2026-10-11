@@ -42,6 +42,10 @@ concurrency:
 env:
   COLLAB_BASE: ${{ inputs.base || 'main' }}
   COLLAB_REF: ${{ inputs.ref || github.ref_name }}
+  # Optional model seats (openai-compatible). Unset => keyless heuristic seats, honestly labelled.
+  COLLAB_LLM_BASE_URL: ${{ vars.COLLAB_LLM_BASE_URL }}
+  COLLAB_LLM_MODELS: ${{ vars.COLLAB_LLM_MODELS }}
+  COLLAB_LLM_KEY: ${{ secrets.COLLAB_LLM_KEY }}
 
 jobs:
   guard:
@@ -64,8 +68,8 @@ jobs:
     outputs:
       files: ${{ steps.run.outputs.files }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
       - id: run
@@ -74,7 +78,7 @@ jobs:
         run: |
           python .github/ai-collab/collab.py divide --base "$COLLAB_BASE" --ref "$COLLAB_REF" --out out/tasks.json
           echo "files=$(python -c "import json;print(json.load(open('out/tasks.json'))['file_count'])")" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: s1-tasks
           path: out
@@ -88,11 +92,11 @@ jobs:
       matrix:
         seat: [a, b]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: s1-tasks
           path: out
@@ -101,7 +105,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python .github/ai-collab/collab.py review --seat "${{ matrix.seat }}" --tasks out/tasks.json --out "out/review-${{ matrix.seat }}.json"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: s2-review-${{ matrix.seat }}
           path: out
@@ -111,11 +115,11 @@ jobs:
     needs: review
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: s2-review-*
           merge-multiple: true
@@ -124,7 +128,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python .github/ai-collab/collab.py rebut --review-a out/review-a.json --review-b out/review-b.json --out out/rebuttal.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: s3-rebuttal
           path: out
@@ -134,11 +138,11 @@ jobs:
     needs: rebut
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: s3-rebuttal
           path: out
@@ -146,7 +150,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python .github/ai-collab/collab.py fix --rebuttal out/rebuttal.json --out out/proposed-fix.md
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: s4-fix
           path: out
@@ -156,8 +160,8 @@ jobs:
     needs: rebut
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
       - name: Install
@@ -177,7 +181,7 @@ jobs:
       - name: Collect test evidence
         run: |
           python .github/ai-collab/collab.py collect-tests --log out/pytest.log --out out/tests.json --exit-code "${{ steps.pytest.outputs.exit }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: s5-tests
           path: out
@@ -187,13 +191,13 @@ jobs:
     needs: [fix, test]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.ref || github.ref_name }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: s*
           merge-multiple: true
@@ -212,7 +216,7 @@ jobs:
           git diff --cached --quiet && echo "no report change" && exit 0
           git commit -m "chore(ai-collab): collaboration report for run ${{ github.run_id }} [skip ci]"
           git push origin "HEAD:$COLLAB_REF"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: s6-collab-report
           path: out

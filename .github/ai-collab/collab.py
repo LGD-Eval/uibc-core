@@ -32,7 +32,15 @@ import urllib.error
 import urllib.request
 
 API = "https://api.github.com"
-MODELS = "https://models.github.ai"
+
+# Backend is pluggable and keyless by default.
+#   COLLAB_LLM_BASE_URL + COLLAB_LLM_MODELS (+ optional COLLAB_LLM_KEY) -> real model seats
+#   unset -> deterministic heuristic seats, honestly labelled "heuristic-fallback"
+# NOTE: the former default (GitHub Models, https://models.github.ai) was RETIRED on
+# 2026-07-30 for all customers (docs.github.com/en/github-models). It is kept here only
+# so `probe` can demonstrate the retirement instead of pretending a seat exists.
+LEGACY_MODELS = "https://models.github.ai"
+MODELS = (os.environ.get("COLLAB_LLM_BASE_URL") or LEGACY_MODELS).rstrip("/")
 
 # Preferred model seats, most-wanted first. Intersected with the live catalog.
 PREFERRED_A = ["openai/gpt-4o-mini", "openai/gpt-4o", "microsoft/phi-4", "meta/llama-3.3-70b-instruct"]
@@ -122,6 +130,11 @@ def catalog_models() -> list[str]:
     """
     global CATALOG_DIAG
     CATALOG_DIAG = []
+    configured = [m.strip() for m in env("COLLAB_LLM_MODELS").split(",") if m.strip()]
+    if configured:
+        CATALOG_DIAG.append({"source": "COLLAB_LLM_MODELS", "models": len(configured),
+                             "base_url_configured": bool(env("COLLAB_LLM_BASE_URL"))})
+        return configured
     for style in ("Bearer", "token", ""):
         status, raw = http(MODELS + "/catalog", auth_style=style)
         ids: list[str] = []
@@ -160,8 +173,8 @@ def chat(model: str, system: str, user: str) -> dict:
     }
     last = {"ok": False, "error": "no attempt"}
     for style in ("Bearer", "token"):
-        status, raw = http(MODELS + "/inference/chat/completions", data=payload,
-                           method="POST", auth_style=style)
+        status, raw = http(MODELS + "/inference/chat/completions", data=payload, method="POST",
+                           tok=(env("COLLAB_LLM_KEY") or token()), auth_style=style)
         if status == 200:
             try:
                 data = json.loads(raw)
@@ -253,6 +266,8 @@ def cmd_probe(args) -> int:
         res = {"ok": False, "error": "no model id available from catalog"}
     out = {
         "endpoint": MODELS,
+        "legacy_endpoint_retired": "GitHub Models retired 2026-07-30 for all customers (docs.github.com/en/github-models)",
+        "configured_model_list": env("COLLAB_LLM_MODELS"),
         "catalog_attempts": CATALOG_DIAG,
         "models_found": len(avail),
         "models_head": avail[:15],
