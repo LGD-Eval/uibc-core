@@ -50,22 +50,33 @@ def env(key: str, default: str = "") -> str:
 
 
 def token() -> str:
-    return env("GH_TOKEN") or env("GITHUB_TOKEN")
+    t = env("GH_TOKEN") or env("GITHUB_TOKEN")
+    if t:
+        return t
+    # local-diagnosis fallback only: in CI the built-in GITHUB_TOKEN is always in env
+    try:
+        import subprocess
+        r = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=20)
+        if r.returncode == 0:
+            return r.stdout.strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
 
 
-def http(url: str, data=None, method: str = "GET", tok: str | None = None):
+def http(url: str, data=None, method: str = "GET", tok: str | None = None, auth_style: str = "Bearer"):
     """Minimal HTTP helper. Returns (status, text). Never raises."""
     hdrs = {"Accept": "application/vnd.github+json", "User-Agent": "uibc-ai-collab"}
     t = tok if tok is not None else token()
     if t:
-        hdrs["Authorization"] = "Bearer " + t
+        hdrs["Authorization"] = (auth_style + " " + t) if auth_style else t
     body = None
     if data is not None:
         body = json.dumps(data).encode("utf-8")
         hdrs["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=body, headers=hdrs, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=int(env("COLLAB_HTTP_TIMEOUT", "120"))) as resp:
             return resp.status, resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read().decode("utf-8", "replace")
@@ -100,23 +111,37 @@ def read_json(path: str):
 # model backend
 # --------------------------------------------------------------------------- #
 
+CATALOG_DIAG: list = []
+
+
 def catalog_models() -> list[str]:
-    status, raw = http(MODELS + "/catalog")
-    if status != 200:
-        return []
-    try:
-        data = json.loads(raw)
-    except Exception:  # noqa: BLE001
-        return []
-    if isinstance(data, dict):
-        data = data.get("models") or data.get("data") or []
-    out = []
-    for item in data or []:
-        if isinstance(item, dict):
-            mid = item.get("id") or item.get("name")
-            if mid:
-                out.append(str(mid))
-    return out
+    """Try every plausible auth style; record a per-attempt diagnosis.
+
+    Self-diagnosing by design: when the backend is unreachable the reason lands
+    in the workflow log and in the report instead of vanishing into a fallback.
+    """
+    global CATALOG_DIAG
+    CATALOG_DIAG = []
+    for style in ("Bearer", "token", ""):
+        status, raw = http(MODELS + "/catalog", auth_style=style)
+        ids: list[str] = []
+        if status == 200:
+            try:
+                data = json.loads(raw)
+            except Exception:  # noqa: BLE001
+                data = None
+            if isinstance(data, dict):
+                data = data.get("models") or data.get("data") or []
+            for item in data or []:
+                if isinstance(item, dict):
+                    mid = item.get("id") or item.get("name")
+                    if mid:
+                        ids.append(str(mid))
+        CATALOG_DIAG.append({"auth": style or "none", "status": status,
+                             "models": len(ids), "body_head": raw[:200]})
+        if ids:
+            return ids
+    return []
 
 
 def pick(preferred: list[str], available: list[str]) -> str | None:
@@ -133,15 +158,19 @@ def chat(model: str, system: str, user: str) -> dict:
         "temperature": 0.2,
         "max_tokens": 900,
     }
-    status, raw = http(MODELS + "/inference/chat/completions", data=payload, method="POST")
-    if status != 200:
-        return {"ok": False, "error": f"HTTP {status}: {raw[:300]}"}
-    try:
-        data = json.loads(raw)
-        text = data["choices"][0]["message"]["content"]
-        return {"ok": True, "text": text}
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": f"parse: {exc}: {raw[:200]}"}
+    last = {"ok": False, "error": "no attempt"}
+    for style in ("Bearer", "token"):
+        status, raw = http(MODELS + "/inference/chat/completions", data=payload,
+                           method="POST", auth_style=style)
+        if status == 200:
+            try:
+                data = json.loads(raw)
+                return {"ok": True, "text": data["choices"][0]["message"]["content"]}
+            except Exception as exc:  # noqa: BLE001
+                last = {"ok": False, "error": f"[{style}] parse: {exc}: {raw[:200]}"}
+        else:
+            last = {"ok": False, "error": f"[{style}] HTTP {status}: {raw[:200]}"}
+    return last
 
 
 # --------------------------------------------------------------------------- #
@@ -212,6 +241,27 @@ def repo() -> str:
 
 def target_ref() -> str:
     return env("COLLAB_REF", "ai-collab")
+
+
+def cmd_probe(args) -> int:
+    """Backend reachability probe with full diagnosis (safe to run locally or in CI)."""
+    avail = catalog_models()
+    model = pick(PREFERRED_A, avail)
+    if model:
+        res = chat(model, "Reply with the single word: ok", "ping")
+    else:
+        res = {"ok": False, "error": "no model id available from catalog"}
+    out = {
+        "endpoint": MODELS,
+        "catalog_attempts": CATALOG_DIAG,
+        "models_found": len(avail),
+        "models_head": avail[:15],
+        "chat_model": model,
+        "chat_ok": res.get("ok"),
+        "chat_detail": (res.get("text") or res.get("error") or "")[:300],
+    }
+    print(json.dumps(out, ensure_ascii=False, indent=2)[:4000])
+    return 0
 
 
 def cmd_divide(args) -> int:
@@ -304,6 +354,7 @@ def cmd_review(args) -> int:
         "model": model if mode == "model" else "(none)",
         "mode": mode,
         "catalog_size": len(avail),
+        "catalog_diag": CATALOG_DIAG,
         "model_errors": model_errors[:3],
         "handoff": {
             "received_tasks_sha256": sha(json.dumps(tasks, ensure_ascii=False, sort_keys=True)),
@@ -315,7 +366,8 @@ def cmd_review(args) -> int:
     }
     out["output_sha256"] = sha(json.dumps(out.get("results"), ensure_ascii=False, sort_keys=True))
     write_json(args.out, out)
-    print(json.dumps({"seat": seat, "mode": mode, "findings": out["total_findings"]}, ensure_ascii=False))
+    print(json.dumps({"seat": seat, "mode": mode, "findings": out["total_findings"],
+                      "catalog": CATALOG_DIAG, "errors": model_errors[:2]}, ensure_ascii=False))
     return 0
 
 
@@ -492,6 +544,10 @@ def cmd_aggregate(args) -> int:
             continue
         L.append(f"- {tag}: mode=`{r['mode']}` model=`{r['model']}` findings=**{r['total_findings']}** "
                  f"(in {r['handoff']['item_count_in']} / out {r['handoff']['item_count_out']}) out_sha=`{r['output_sha256'][:12]}`")
+        if r["mode"] != "model":
+            L.append(f"  - backend diagnosis: catalog_size={r.get('catalog_size')} "
+                     f"diag={json.dumps(r.get('catalog_diag'), ensure_ascii=False)[:400]} "
+                     f"errors={json.dumps(r.get('model_errors'), ensure_ascii=False)[:300]}")
     L.append("")
     L.append("## 3. 相互反驳 (mutual rebuttal + arbitration)")
     if reb:
@@ -541,6 +597,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    pr = sub.add_parser("probe"); pr.set_defaults(fn=cmd_probe)
     d = sub.add_parser("divide"); d.add_argument("--base", default="main"); d.add_argument("--ref"); d.add_argument("--out", required=True); d.set_defaults(fn=cmd_divide)
     r = sub.add_parser("review"); r.add_argument("--seat", required=True, choices=["a", "b"]); r.add_argument("--tasks", required=True); r.add_argument("--out", required=True); r.set_defaults(fn=cmd_review)
     b = sub.add_parser("rebut"); b.add_argument("--review-a", required=True); b.add_argument("--review-b", required=True); b.add_argument("--out", required=True); b.set_defaults(fn=cmd_rebut)
