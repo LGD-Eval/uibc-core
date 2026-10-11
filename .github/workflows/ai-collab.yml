@@ -118,17 +118,13 @@ jobs:
     if: ${{ vars.COLLAB_LLM_BASE_URL != '' }}
     timeout-minutes: 30
     steps:
-      - name: "Checkout via SSH (self-contained: explicit key, port-443 URL, copied known_hosts -- no dependence on interactive shell state)"
+      - name: "Checkout via SSH (pre-staged key material in the runner tree -- the job context cannot read the user profile .ssh directory)"
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $sshDir = Join-Path $env:USERPROFILE '.ssh'
-          $kh = Join-Path $env:RUNNER_TEMP 'known_hosts'
-          $khFwd = ($kh -replace '\\','/')
-          if (Test-Path (Join-Path $sshDir 'known_hosts')) {
-            Copy-Item (Join-Path $sshDir 'known_hosts') $kh -Force
-          }
+          $sshDir = 'C:\Users\Administrator\actions-runner\_ssh'
           $key = Join-Path $sshDir 'id_ed25519'
+          $khFwd = ((Join-Path $sshDir 'known_hosts') -replace '\\','/')
           $env:GIT_SSH_COMMAND = "ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$khFwd"
           $url = 'ssh://git@ssh.github.com:443/zhaoxinghua09-cell/uibc-core.git'
           $ref = "$env:GITHUB_REF_NAME"
