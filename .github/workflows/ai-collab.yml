@@ -116,7 +116,7 @@ jobs:
     runs-on: [self-hosted, ollama]
     # skipped entirely unless the repo variable is set -- keeps the free/zero-key default
     if: ${{ vars.COLLAB_LLM_BASE_URL != '' }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: "Checkout via SSH (pre-staged key material in the runner tree -- the job context cannot read the user profile .ssh directory)"
         shell: powershell
@@ -148,6 +148,8 @@ jobs:
         shell: powershell
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COLLAB_LLM_NUM_GPU: '0'
+          COLLAB_HTTP_TIMEOUT: '600'
         run: |
           python .github/ai-collab/collab.py review --seat a --tasks out/tasks.json --out out/review-ollama-a.json
           python .github/ai-collab/collab.py review --seat b --tasks out/tasks.json --out out/review-ollama-b.json

@@ -29,6 +29,7 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 API = "https://api.github.com"
@@ -72,6 +73,15 @@ def token() -> str:
     return ""
 
 
+def _opener_for(url: str):
+    """Loopback targets must never go through a proxy (runner machines often
+    carry HTTP(S)_PROXY env vars that hijack localhost calls)."""
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    if host in ("127.0.0.1", "localhost", "::1"):
+        return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    return urllib.request.build_opener()
+
+
 def http(url: str, data=None, method: str = "GET", tok: str | None = None, auth_style: str = "Bearer"):
     """Minimal HTTP helper. Returns (status, text). Never raises."""
     hdrs = {"Accept": "application/vnd.github+json", "User-Agent": "uibc-ai-collab"}
@@ -84,7 +94,7 @@ def http(url: str, data=None, method: str = "GET", tok: str | None = None, auth_
         hdrs["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=body, headers=hdrs, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=int(env("COLLAB_HTTP_TIMEOUT", "120"))) as resp:
+        with _opener_for(url).open(req, timeout=int(env("COLLAB_HTTP_TIMEOUT", "120"))) as resp:
             return resp.status, resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read().decode("utf-8", "replace")
@@ -165,6 +175,25 @@ def pick(preferred: list[str], available: list[str]) -> str | None:
 
 
 def chat(model: str, system: str, user: str) -> dict:
+    if env("COLLAB_LLM_NUM_GPU") == "0":
+        # CPU-only route via the Ollama native API: desktop GPU may be fully
+        # occupied by other local workloads; CI seats must not contend for VRAM.
+        parts = urllib.parse.urlsplit(MODELS)
+        origin = f"{parts.scheme}://{parts.netloc}"
+        payload = {
+            "model": model,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "stream": False,
+            "options": {"num_gpu": 0, "num_ctx": 8192, "temperature": 0.2, "num_predict": 900},
+        }
+        status, raw = http(origin + "/api/chat", data=payload, method="POST", tok=None, auth_style="")
+        if status == 200:
+            try:
+                data = json.loads(raw)
+                return {"ok": True, "text": data["message"]["content"]}
+            except Exception as exc:  # noqa: BLE001
+                return {"ok": False, "error": f"[native] parse: {exc}: {raw[:200]}"}
+        return {"ok": False, "error": f"[native] HTTP {status}: {raw[:200]}"}
     payload = {
         "model": model,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -173,7 +202,7 @@ def chat(model: str, system: str, user: str) -> dict:
     }
     last = {"ok": False, "error": "no attempt"}
     for style in ("Bearer", "token"):
-        status, raw = http(MODELS + "/inference/chat/completions", data=payload, method="POST",
+        status, raw = http(MODELS + "/chat/completions", data=payload, method="POST",
                            tok=(env("COLLAB_LLM_KEY") or token()), auth_style=style)
         if status == 200:
             try:
