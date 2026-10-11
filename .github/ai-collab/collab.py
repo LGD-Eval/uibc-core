@@ -333,7 +333,12 @@ def cmd_review(args) -> int:
     tasks = read_json(args.tasks)
     seat = args.seat
     avail = catalog_models()
-    model = pick(PREFERRED_A if seat == "a" else PREFERRED_B, avail)
+    cfg = [m.strip() for m in env("COLLAB_LLM_MODELS").split(",") if m.strip()]
+    if cfg:
+        # heterogeneous seats by design: two DIFFERENT local models => independent perspectives
+        model = cfg[0] if seat == "a" else (cfg[1] if len(cfg) > 1 else cfg[0])
+    else:
+        model = pick(PREFERRED_A if seat == "a" else PREFERRED_B, avail)
     results, mode = [], "heuristic-fallback"
     model_errors = []
     import base64
@@ -389,7 +394,8 @@ def cmd_review(args) -> int:
 def cmd_rebut(args) -> int:
     a, b = read_json(args.review_a), read_json(args.review_b)
     avail = catalog_models()
-    model = pick(PREFERRED_C, avail)
+    cfg = [m.strip() for m in env("COLLAB_LLM_MODELS").split(",") if m.strip()]
+    model = cfg[0] if cfg else pick(PREFERRED_C, avail)
 
     def key(f):
         return (f.get("file"), f.get("issue"))
@@ -449,7 +455,8 @@ def cmd_rebut(args) -> int:
 def cmd_fix(args) -> int:
     reb = read_json(args.rebuttal)
     avail = catalog_models()
-    model = pick(PREFERRED_D, avail)
+    cfg = [m.strip() for m in env("COLLAB_LLM_MODELS").split(",") if m.strip()]
+    model = cfg[0] if cfg else pick(PREFERRED_D, avail)
     lines = ["# Proposed fixes (seat D) -- NOT APPLIED, awaiting human acceptance", ""]
     mode = "heuristic-fallback"
     if model:
@@ -563,6 +570,18 @@ def cmd_aggregate(args) -> int:
             L.append(f"  - backend diagnosis: catalog_size={r.get('catalog_size')} "
                      f"diag={json.dumps(r.get('catalog_diag'), ensure_ascii=False)[:400]} "
                      f"errors={json.dumps(r.get('model_errors'), ensure_ascii=False)[:300]}")
+    L.append("")
+    oa, ob = load("review-ollama-a.json"), load("review-ollama-b.json")
+    if oa or ob:
+        L.append("### 2b. 真·模型席位 (real-model seats, self-hosted runner + local Ollama)")
+        for tag, r in (("reviewer-local", oa), ("red-team-local", ob)):
+            if r:
+                L.append(f"- {tag}: mode=`{r['mode']}` model=`{r['model']}` findings=**{r['total_findings']}** "
+                         f"(in {r['handoff']['item_count_in']} / out {r['handoff']['item_count_out']})")
+            else:
+                L.append(f"- {tag}: artifact missing (runner ran but seat output lost)")
+    else:
+        L.append("### 2b. 真·模型席位 (real-model seats): offline / not configured — heuristic seats carried this run")
     L.append("")
     L.append("## 3. 相互反驳 (mutual rebuttal + arbitration)")
     if reb:
