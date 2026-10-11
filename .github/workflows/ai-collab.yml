@@ -118,20 +118,30 @@ jobs:
     if: ${{ vars.COLLAB_LLM_BASE_URL != '' }}
     timeout-minutes: 30
     steps:
-      - name: "Checkout via SSH (this machine blocks HTTPS 443 to github.com; SSH over 443 works)"
+      - name: "Checkout via SSH (self-contained: explicit key, port-443 URL, copied known_hosts -- no dependence on interactive shell state)"
         shell: powershell
         run: |
+          $ErrorActionPreference = 'Stop'
+          $sshDir = Join-Path $env:USERPROFILE '.ssh'
+          $kh = Join-Path $env:RUNNER_TEMP 'known_hosts'
+          $khFwd = ($kh -replace '\\','/')
+          if (Test-Path (Join-Path $sshDir 'known_hosts')) {
+            Copy-Item (Join-Path $sshDir 'known_hosts') $kh -Force
+          }
+          $key = Join-Path $sshDir 'id_ed25519'
+          $env:GIT_SSH_COMMAND = "ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$khFwd"
+          $url = 'ssh://git@ssh.github.com:443/zhaoxinghua09-cell/uibc-core.git'
           $ref = "$env:GITHUB_REF_NAME"
           Write-Host "checkout ref: $ref"
           if (Test-Path .git) {
-            git remote set-url origin git@github.com:zhaoxinghua09-cell/uibc-core.git
+            git remote set-url origin $url
             git fetch -q --depth 1 origin $ref
-            if ($LASTEXITCODE -ne 0) { throw "ssh fetch failed" }
+            if ($LASTEXITCODE -ne 0) { throw "checkout via ssh failed at fetch" }
             git checkout -q -f FETCH_HEAD
             git clean -qfdx
           } else {
-            git clone -q --depth 1 --branch $ref git@github.com:zhaoxinghua09-cell/uibc-core.git .
-            if ($LASTEXITCODE -ne 0) { throw "ssh clone failed" }
+            git clone -q --depth 1 --branch $ref $url .
+            if ($LASTEXITCODE -ne 0) { throw "checkout via ssh failed at clone" }
           }
           git log --oneline -1
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -139,7 +149,7 @@ jobs:
           name: s1-tasks
           path: out
       - name: Run heterogeneous local Ollama seats (A + B, two different models)
-        shell: pwsh
+        shell: powershell
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
