@@ -236,7 +236,8 @@ jobs:
 
   aggregate:
     name: "6. aggregate + publish report to collab branch only"
-    needs: [fix, test]
+    needs: [fix, test, ollama-review]
+    if: ${{ !cancelled() && needs.fix.result == 'success' && needs.test.result == 'success' && (needs['ollama-review'].result == 'success' || needs['ollama-review'].result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
