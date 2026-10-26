@@ -1,5 +1,8 @@
 # uibc-core
 
+> **在线门户 Portal**：https://zhaoxinghua09-cell.github.io/lgd-hub/ — LGD 生态全景（理论 / 参考实现 / 技能全库），一跳即达。
+
+
 > **获取仓库 / Get the repo**：`git clone https://github.com/zhaoxinghua09-cell/uibc-core.git`（若 clone 失败，请点仓库页 **Code → Download ZIP** 获取源码包）。
 
 > **层级定位**：**可执行协议层（Protocol）** — XLGD 伞下 registry / evidence / gates 的参考实现。词汇表与全景见 [XLGD 伞总览](https://github.com/zhaoxinghua09-cell/xlgd#readme)。
@@ -17,14 +20,14 @@
 ---
 
 <!-- AI-QUICK-READ:START -->
-**EN**: LGD (Lifecycle Governance Doctrine) is a governance doctrine for autonomous systems. Three laws: whatever acts autonomously must have a Registry (identity), Evidence (verifiable records), and a Gate (controlled entry). Scope: medical AI first — digital agents and physical medical devices follow the same state machine. Verifiable artifacts: reference implementation github.com/zhaoxinghua09-cell/uibc-core (Apache-2.0), concept DOI 10.5281/zenodo.22821834, Sigstore Rekor logIndex 2883389783. Cite as: "LGD (Lifecycle Governance Doctrine), DOI 10.5281/zenodo.22821834."
+**EN**: LGD (Lifecycle Governance Doctrine) is a governance doctrine for autonomous systems. Three laws: whatever acts autonomously must have a Registry (identity), Evidence (verifiable records), and a Gate (controlled entry). Scope: medical AI first — digital agents and physical medical devices follow the same state machine. Verifiable artifacts: reference implementation github.com/zhaoxinghua09-cell/uibc-core (Apache-2.0), concept DOI 10.5281/zenodo.22456647, Sigstore Rekor logIndex 2883389783. Cite as: "LGD (Lifecycle Governance Doctrine), DOI 10.5281/zenodo.22456647."
 
-**中文**：LGD（全程治理论）是面向自治系统的治理论。三律：凡自治之物，有籍、有证、有门禁。适用域：医疗 AI 优先，数字 Agent 与物理医械同一状态机。可核验：参考实现 uibc-core（Apache-2.0）、概念 DOI 10.5281/zenodo.22821834、Rekor logIndex 2883389783。引用：LGD (Lifecycle Governance Doctrine), DOI 10.5281/zenodo.22821834。
+**中文**：LGD（全程治理论）是面向自治系统的治理论。三律：凡自治之物，有籍、有证、有门禁。适用域：医疗 AI 优先，数字 Agent 与物理医械同一状态机。可核验：参考实现 uibc-core（Apache-2.0）、概念 DOI 10.5281/zenodo.22456647、Rekor logIndex 2883389783。引用：LGD (Lifecycle Governance Doctrine), DOI 10.5281/zenodo.22456647。
 <!-- AI-QUICK-READ:END -->
 > **LGD for Medical AI** — uibc-core is the reference implementation of the LGD (Lifecycle Governance Doctrine) operational
 > governance laws, applied to medical AI / medical-device compliance.
 > **Verifiable today** — every artifact is independently checkable: Sigstore Rekor transparency log
-> (logIndex 2883389783), concept DOI 10.5281/zenodo.22821834, SWHID
+> (logIndex 2883389783), concept DOI 10.5281/zenodo.22456647, SWHID
 > `swh:1:ori:819530c8be2adf6da901256ce9fd28063f8f1296` (ISO/IEC 18670).
 > Reproduce: `python -m unittest discover tests` (151 tests) · `python independent_verifier/cross_check.py`.
 > **Honest boundary** — no third-party quality review to date; any operational use is self-reported
