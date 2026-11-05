@@ -48,6 +48,7 @@ UIBC Core 参考实现 v0.2.1 **[PROPOSAL]** —— Agent 生命周期证据包�
 
 > 🔏 发布产物已进入 Sigstore Rekor 公共透明日志（logIndex 2883389783，见 `dist/*.cosign.bundle`）；
 > Zenodo DOI 与 Software Heritage SWHID 见 CITATION.cff。
+> Version–record mapping (including known provenance gaps): see [VERSIONS.md](VERSIONS.md).
 > 以上均为**存证**，非质量认可。
 
 ## 5 分钟 Quickstart
